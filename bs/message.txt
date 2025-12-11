@@ -1,0 +1,91 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+class UniversalNet(nn.Module): # prima funkcii (za poveke arhitekturi)
+    def __init__(self, input_dim, hidden_layers, activation_class, dropout_p):
+        super().__init__()
+        layers = []
+        prev_dim = input_dim
+        
+        for hidden_dim in hidden_layers:
+            layers.append(nn.Linear(prev_dim, hidden_dim))      # 1. Линеарен слој
+            layers.append(activation_class())                   # 2. Активација (ReLU, Tanh, итн.)
+            if dropout_p > 0:
+                layers.append(nn.Dropout(dropout_p))            # 3. Регуларизација (Dropout) - Ако Dropout = 0, нема регуларизација
+            prev_dim = hidden_dim
+            
+        layers.append(nn.Linear(prev_dim, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x).squeeze(1)
+==========================
+layer_configs = [ # za poveke arhitekturi
+    [32],                  
+    [64, 32],              
+    [128, 64, 32]         
+]
+
+activation_functions = [
+    nn.ReLU, 
+    nn.Tanh, 
+    nn.LeakyReLU
+]
+
+dropout_values = [0.0, 0.2] 
+
+results = []
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+input_dim = X_train.shape[1]
+
+print(f"Start experiments on {device}...")
+
+for layers in layer_configs:
+    for act_func in activation_functions:
+        for drop_p in dropout_values:
+            
+            act_name = act_func.__name__
+            exp_name = f"L={layers} | Act={act_name} | Drop={drop_p}"
+            print(f"\n Testing: {exp_name}")
+            
+            model = UniversalNet(input_dim, layers, act_func, drop_p).to(device)
+            
+            optimizer = optim.Adam(model.parameters(), lr=0.001)
+            criterion = nn.BCEWithLogitsLoss()
+            
+            for epoch in range(8):
+                model.train()
+                for X_b, y_b in train_loader:
+                    X_b, y_b = X_b.to(device).float(), y_b.to(device).float()
+                    optimizer.zero_grad()
+                    loss = criterion(model(X_b), y_b)
+                    loss.backward()
+                    optimizer.step()
+            
+            model.eval()
+            all_preds, all_targets = [], []
+            with torch.no_grad():
+                for X_b, y_b in val_loader:
+                    X_b = X_b.to(device).float()
+                    logits = model(X_b)
+                    probs = torch.sigmoid(logits).cpu().numpy()
+                    preds = (probs >= 0.5).astype(int)
+                    all_preds.extend(preds)
+                    all_targets.extend(y_b.numpy())
+            
+            acc = accuracy_score(all_targets, all_preds)
+            print(f"   Result Accuracy: {acc:.4f}")
+            
+            results.append((acc, exp_name))
+
+results.sort(key=lambda x: x[0], reverse=True)
+
+print("\n" + "="*40)
+print("TOP 3 ARCHITECTURES:")
+print("="*40)
+for i in range(3):
+    if i < len(results):
+        print(f"{i+1}. Acc: {results[i][0]:.4f}  =>  {results[i][1]}")
